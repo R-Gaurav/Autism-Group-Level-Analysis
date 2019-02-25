@@ -5,9 +5,11 @@
 # values of autistic and healthy individuals.
 #
 
+from multiprocessing import Pool
 import nipy as nip
 import numpy as np
 import numpy.linalg as npl
+import sys
 import time
 
 from nipy.modalities.fmri.glm import GeneralLinearModel
@@ -28,7 +30,7 @@ def get_beta_group_level_glm(Y, X):
                        2, 3, ..., 4], ..., [2, 3, 4, ..., 4]])
 
   Returns:
-    numpy.ndarray: Shape-> number of regressors X 1
+    numpy.ndarray
   """
   # The regressor vectors are in rows first format. Make them column vectors.
   X = X.T
@@ -58,8 +60,39 @@ def get_beta_group_level_glm(Y, X):
   print "Python standard GLM Betas: ", beta_cap
   print "*" * 80
 
-  start = time.time()
-  B = npl.inv(X.T.dot(X)).dot(X.T).dot(Y)
-  print "Python standard GLM-Varun time taken: ", time.time() - start
-  print "Python standard GLM-Varun Betas: ", B
-  print "*" * 80
+ start = time.time()
+ B = npl.inv(X.T.dot(X)).dot(X.T).dot(Y)
+ #print "Python standard GLM-Varun time taken: ", time.time() - start
+ print "Python standard GLM-Varun Betas: ", B
+ print "Python standard GLM-Varun Betas Shape: ", B.shape
+ print "*" * 80
+ return B
+
+if __name__ == "__main__":
+  all_subjects_all_roi_fc_matrix_path = sys.argsv[1] # A *.npy file.
+  regressors_matrix_path = sys.argsv[2] # A *.npy file.
+  num_cores = int(sys.argv[3])
+  all_subjects_all_roi_fc_matrix = np.load(all_subjects_all_roi_fc_matrix_path)
+  regressors_matrix = np.load(regressors_matrix_path)
+
+  # Do data parallelization by dividing all_subjects_all_roi_fc_matrix equally
+  # into bins equal to num_cores. Division is on ROIs.
+  bx, by, bz, rois, subs_fc_matrix = all_subjects_all_roi_fc_matrix.shape
+  pool = Pool(num_cores)
+  rois = 274
+  num_cores = 4
+  rois_sample = rois / num_cores
+  rois_range_list = []
+  for core in xrange(num_cores):
+    if core == num_cores-1:
+      rois_range_list.append((core*rois_sample, rois))
+    else:
+      rois_range_list.append((core*rois_sample, (core+1)*rois_sample))
+  print rois_range_list
+
+  data_input_list = [(
+      all_subjects_all_roi_fc_matrix[:, roi_range[0]:roi_range[1]],
+      regressors_matrix) for roi in rois_range_list]
+
+  # TODO: Implement t-values code and accept those as return of below function.
+  pool.map(do_group_level_glm, data_input_list)
