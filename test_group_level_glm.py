@@ -40,5 +40,5 @@ np.save("x.npy", x)
 print "Shape all_subs_all_rois_matrix from test: ", all_subs_all_rois_matrix.shape
 print "Shape regressors_matrix from test: ", x.shape
 all_rois_beta_values_matrix, rois, by, bz = do_group_level_glm(
-    all_subs_all_rois_matrix, x)
+    (all_subs_all_rois_matrix, x))
 print "do_group_level_glm ans: ", all_rois_beta_values_matrix
