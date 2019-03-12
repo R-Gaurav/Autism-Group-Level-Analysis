@@ -22,13 +22,13 @@ from multiprocessing import Pool
 import numpy as np
 import numpy.linalg as npl
 import sys
-from scipy import stats
-import time
 
+from utility.gla_utilities import (
+    get_beta_group_level_glm, get_t_val_p_val_for_voxels)
 # Create contrast of autism - healthy with 0's for other regressors.
 contrast = np.matrix([1, -1, 0, 0]).T
 
-def do_group_level_analysis(params):
+def do_group_level_glm(params):
   """
   Does a group level analysis.
 
@@ -61,10 +61,10 @@ def do_group_level_analysis(params):
 
   Returns:
     numpy.ndarray: A 4D matrix where first dimension correspond to number of ROIs
-        and last three dimensions corresponds to the dimension of brain where
-        each cell is a tuple of (t-value, p-value) of each voxel in the brain for
-        the given `contrast` of regressors. In other words, each ROI has a brain
-        map of statistical values i.e. number of brains returned = number of ROIs.
+        and last three dimensions corresponds to the dimension of brain map where
+        each cell is a tuple of (beta-values, error-value) of each voxel in the
+        brain obtained after GLM. In other words, number of brains returned =
+        number of ROIs.
   """
   all_subjects_all_roi_fc_matrix, regressors_matrix = params[0], params[1]
   num_subs_fc_matrix, rois, bx, by, bz = all_subjects_all_roi_fc_matrix.shape
@@ -75,27 +75,22 @@ def do_group_level_analysis(params):
   # Assert that regressors_matrix is full rank i.e. columns are independent.
   assert npl.matrix_rank(regressors_matrix) == num_regressors
 
-  all_rois_stat_values_list = [] # List to store the brain maps of (t, p) stats.
+  # List to store the 3D maps of (beta, error) tuple (for each voxel) for rois.
+  all_rois_be_tuple_4d_list = []
 
   for roi in xrange(rois):
     # Do GLM for a single ROI to get a brain map of (beta values, error) tuple.
     single_roi_be_tuple_3d_matrix = _do_glm_for_single_roi_all_subjects(
         all_subjects_all_roi_fc_matrix[:, roi], regressors_matrix)
     # Get a brain map for the ROI where each cell is (t-value, p-value) tuple.
-    single_roi_t_p_tuple_3d_matrix = get_t_val_p_val_for_voxels(
-        single_roi_be_tuple_3d_matrix, contrast, regressors_matrix)
+    #single_roi_t_p_tuple_3d_matrix = get_t_val_p_val_for_voxels(
+    #    single_roi_be_tuple_3d_matrix, contrast, regressors_matrix)
+    all_rois_be_tuple_4d_list.append(single_roi_be_tuple_3d_matrix)
 
-    all_rois_stat_values_list.append(single_roi_t_p_tuple_3d_matrix)
-
-  all_rois_stat_values_matrix = np.array(all_rois_stat_values_list)
-  # Assert shape of all_rois_stat_values_matrix to be equal to number_of_rois x
-  # x brain's_x_dimension x brain's_y_dimension x brain's_z_dimension.
-  assert all_rois_stat_values_matrix.shape == (rois, bx, by, bz)
-
-  # Note: all_rois_stat_values_matrix is a 4D matrix, where each 3D matrix (last
-  # three dimensions) denotes the group level stat values obtained for all brain
-  # voxels for a single ROI.
-  return all_rois_stat_values_matrix
+  # Note: all_rois_be_tuple_4d_list is a list, where each element is a 3D matrix
+  # in which each cell stores the group level beta and error values as a tuple
+  # obtained for respective brain voxels for a single ROI.
+  return all_rois_be_tuple_4d_list
 
 def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
                                         regressors_matrix):
@@ -160,107 +155,6 @@ def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
 
   return be_tuple_3d_matrix
 
-def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
-                                   dsgn_matrix_x):
-  """
-  Calculates a t-score for given contrast and beta vector. The null hypothesis
-  is np.dot(contrast.T, voxel_beta_vec) = 0. Also calculates two-tailed p-value
-  for the calculated t-score.
-
-  Args:
-    voxel_beta_vec (numpy.ndarray): A 1D column matrix of beta values of
-        regressors related to a voxel; rows = number of regressors, column = 1.
-    voxel_error_vec (numpy.ndarray): A 1D column matrix of residual/error values
-        related to a voxel; rows = number of subjects, column = 1.
-    contrast (numpy.ndarray): A 1D column matrix of contrast values of beta vals;
-        rows = number of regressors, column = 1.
-    dsgn_matrix_x (numpy.ndarray): A 2D matrix of regressor vectors, where each
-        column is a regressor vector. Number of rows and columns is equal to
-        number of subjects and number of regressors considered respectively.
-
-  Returns:
-    float, float: A t statistic score, A two-tailed p value.
-  """
-  # Calculate t-value.
-  numerator = contrast.T.dot(voxel_beta_vec)
-  var_e = voxel_error_vec.var(ddof=2) # Set DDOF = 2 as two groups are accounted.
-  xtx_inv = npl.inv(dsgn_matrix_x.T.dot(dsgn_matrix_x))
-  denominator = np.sqrt(var_e * contrast.T.dot(xtx_inv).dot(contrast))
-  t_score = float(numerator) / denominator
-
-  # Calculate p-value.
-  # Degree of Freedom = Number of subjects - 2 (since 2 groups are accounted).
-  dof = voxel_error_vec.shape[0] - 2
-  p_value = stats.t.sf(t_score, dof) * 2 # A two tailed p-value.
-  return t_score, p_value
-
-def get_t_val_p_val_for_voxels(be_tuple_3d_matrix, contrast, dsgn_matrix_x):
-  """
-  Calculates t statistic for beta values and gets two tailed p values for those.
-
-  Args:
-    be_tuple_3d_matrix: A 3D matrix where each cell stores a tuple of (1D vector
-        of beta values for the regressors, 1D vector of residual/error).
-
-    contrast: A 1D array denoting the contrast of the regressors for whom t
-        statistic scores have to be obtained. For example, if the regressor
-        columns in X are arranged as [autistic, healthy, iq, handedness] and we
-        intend to find the contrast between "autistic" and "healthy", the
-        "contrast" array should be a 1D column vector:[1, -1, 0, 0].
-
-    dsgn_matrix_x (numpy.ndarray): A 2D matrix of regressor vectors, where each
-        column is a regressor vector; rows = number of subjects, columns = number
-        of regressors considered.
-
-  Returns:
-    numpy.ndarray: A 3D matrix where each cell represent a brain voxel and stores
-        a tuple of (T value, P value) for each voxel.
-  """
-  bx, by, bz = be_tuple_3d_matrix.shape # Get the shape of 3D brain.
-  # Create a 3D matrix where each cell denotes a voxel and stores a tuple of
-  # (t-value, p-value) corresponding to that voxel.
-  stat_3D_matrix = np.zeros((bx, by, bz), dtype="object")
-
-  for x in xrange(bx):
-    for y in xrange(by):
-      for z in xrange(bz):
-        voxel_beta_vec, voxel_error_vec = (
-            be_tuple_3d_matrix[x, y, z][0], be_tuple_3d_matrix[x, y, z][1])
-        voxel_t_score, voxel_p_score = _calculate_t_score_and_p_score(
-            voxel_beta_vec.reshape(-1, 1), voxel_error_vec.reshape(-1, 1),
-            contrast, dsgn_matrix_x)
-        stat_3D_matrix[x, y, z] = (voxel_t_score, voxel_p_score)
-
-  return stat_3D_matrix
-
-def get_beta_group_level_glm(Y, X):
-  """
-  Args:
-    Y (numpy.ndarray): An 2D array of correlation values (between seed voxel and
-                       other brain voxels).
-                       e.g.: array([[0.23, 0.12, 0.11, ..., 0.23, 0.87, 0.45,
-                                    0.88, ...,  0.76], [0.11, 0.56, ..., 0.88]])
-                       where in a column first few values correspond to
-                       correlation scores of autistic individuals, rest scores
-                       correspond to healthy individuals. Shape of Y is equal to
-                       number of subjects x number of voxels.
-
-    X (numpy.ndarray): A 2D array of regressors, where each column is a regressor
-                       vector e.g.: array([[1, 2, 3, ..., 4], ..., [2, 3, 4, ...,
-                       4]]). Shape of X is equal to number of number of subjects
-                       x number of regressors.
-
-  Returns:
-    numpy.ndarray, numpy.ndarray: beta matrix (number of regressors x number of
-        voxels), residual/error matrix (number of subjects x number of voxels).
-  """
-  # Get beta values-> B.
-  B = npl.inv(X.T.dot(X)).dot(X.T).dot(Y)
-  # Get residual/error values-> R.
-  R = Y - X.dot(B)
-
-  return B, R
-
 if __name__ == "__main__":
   all_subjects_all_roi_fc_matrix_path = sys.argv[1] # A *.npy file.
   regressors_matrix_path = sys.argv[2] # A *.npy file.
@@ -270,7 +164,7 @@ if __name__ == "__main__":
 
   # Do data parallelization by dividing all_subjects_all_roi_fc_matrix equally
   # into bins equal to num_cores. Division is on ROIs.
-  bx, by, bz, rois, num_subs_fc_matrix = all_subjects_all_roi_fc_matrix.shape
+  num_subs_fc_matrix, rois, bx, by, bz = all_subjects_all_roi_fc_matrix.shape
   pool = Pool(num_cores)
 
   rois_sample = rois / num_cores
@@ -285,6 +179,15 @@ if __name__ == "__main__":
       all_subjects_all_roi_fc_matrix[:, roi_range[0]:roi_range[1]],
       regressors_matrix) for roi_range in rois_range_list]
 
-  result = pool.map(do_group_level_analysis, data_input_list)
-  print len(result)
-  print result
+  all_rois_be_mat_list = pool.map(do_group_level_glm, data_input_list)
+  # all_rois_be_mat_list is a list of lists (e.g. [[3D_mat1, 3D_mat2, ...], ...,
+  # [3D_mat1, 3D_mat2, ...]]), such that each element list is a list of 3D
+  # matrices. The element lists have length equal to the number of rois
+  # they intook. Each ROI correspond to one 3D matrix. The extenal list has
+  # length equal to the number of processors.
+  result = []
+  for rois_be_mat_list in all_rois_be_mat_list:
+    result.extend(rois_be_mat_list)
+  result = np.array(result)
+  assert result.shape == (rois, bx, by, bz)
+  np.save("all_rois_beta_error_tuple_4D_matrix", result)
