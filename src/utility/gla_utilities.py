@@ -83,6 +83,8 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   is np.dot(contrast.T, voxel_beta_vec) = 0. Also calculates two-tailed p-value
   for the calculated t-score.
 
+  Ref: http://www.brainvoyager.com/bvqx/doc/UsersGuide/StatisticalAnalysis/TheGeneralLinearModel.html
+
   Args:
     voxel_beta_vec (numpy.ndarray): A 1D column matrix of beta values of
         regressors related to a voxel; rows = number of regressors, column = 1.

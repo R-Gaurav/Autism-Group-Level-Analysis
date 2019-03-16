@@ -2,20 +2,16 @@
 # Author: Ramashish Gaurav
 #
 # This file implements group level GLM to regress out various regressors to find
-# the significance of autistic and healthy individuals. After finding the beta
-# values of regressors, it also finds the t value and p value for each brain
-# voxel for each ROI. A voxel's t value and p value correspond across all
-# subjects (autistic + healthy).
+# the significance of autistic and healthy individuals. It save the obtained
+# 3D matrix of beta values (w.r.t. regressors) and residual/error for each ROI.
 #
-# do_group_level_analysis(...) is the main function to be called with appropriate
-# arguments. Make sure to accordingly set the global `contrast` variable.
+# do_group_level_glm(...) is the main function to be called with appropriate
+# arguments.
 #
-# Usage: python get_t_and_p_stat_from_group_glm.py <path/to/func_conn_mat.npy> <
+# Usage: python do_group_level_glm.py <path/to/func_conn_mat.npy> <
 # path/to/regressor_mat.npy> <num_cores>
 #
 # For more information see the __main__ function.
-#
-# TODO: Include the condition number criteria too.
 #
 
 from multiprocessing import Pool
@@ -23,10 +19,8 @@ import numpy as np
 import numpy.linalg as npl
 import sys
 
-from utility.gla_utilities import (
-    get_beta_group_level_glm, get_t_val_p_val_for_voxels)
-# Create contrast of autism - healthy with 0's for other regressors.
-contrast = np.matrix([1, -1, 0, 0]).T
+from utility.gla_utilities import get_beta_group_level_glm
+from utility.exp_utilities import get_rois_range_list
 
 def do_group_level_glm(params):
   """
@@ -68,29 +62,25 @@ def do_group_level_glm(params):
   """
   all_subjects_all_roi_fc_matrix, regressors_matrix = params[0], params[1]
   num_subs_fc_matrix, rois, bx, by, bz = all_subjects_all_roi_fc_matrix.shape
-  num_subs_reg_matrix, num_regressors = regressors_matrix.shape
+  num_subs_reg_matrix, _ = regressors_matrix.shape
   # Assert number of subjects in functional connectivity matrix equal to the
   # number of subjects in regressors_matrix.
   assert num_subs_fc_matrix == num_subs_reg_matrix
-  # Assert that regressors_matrix is full rank i.e. columns are independent.
-  assert npl.matrix_rank(regressors_matrix) == num_regressors
 
   # List to store the 3D maps of (beta, error) tuple (for each voxel) for rois.
-  all_rois_be_tuple_4d_list = []
+  all_rois_be_tuple_3d_mat_list = []
 
   for roi in xrange(rois):
     # Do GLM for a single ROI to get a brain map of (beta values, error) tuple.
     single_roi_be_tuple_3d_matrix = _do_glm_for_single_roi_all_subjects(
         all_subjects_all_roi_fc_matrix[:, roi], regressors_matrix)
-    # Get a brain map for the ROI where each cell is (t-value, p-value) tuple.
-    #single_roi_t_p_tuple_3d_matrix = get_t_val_p_val_for_voxels(
-    #    single_roi_be_tuple_3d_matrix, contrast, regressors_matrix)
-    all_rois_be_tuple_4d_list.append(single_roi_be_tuple_3d_matrix)
+    all_rois_be_tuple_3d_mat_list.append(single_roi_be_tuple_3d_matrix)
+    print "Group Level GLM, ROI: %s Done!" % roi
 
-  # Note: all_rois_be_tuple_4d_list is a list, where each element is a 3D matrix
-  # in which each cell stores the group level beta and error values as a tuple
-  # obtained for respective brain voxels for a single ROI.
-  return all_rois_be_tuple_4d_list
+  # Note: all_rois_be_tuple_3d_mat_list is a list, where each element is a 3D
+  # matrix in which each cell stores the group level beta and error values as a
+  # tuple obtained for respective brain voxels for a single ROI.
+  return all_rois_be_tuple_3d_mat_list
 
 def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
                                         regressors_matrix):
@@ -105,7 +95,6 @@ def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
     regressors_matrix (numpy.ndarray): A 2 dimensional matrix of regressors.
         The first dimension (rows) is with respect to number of subjects and
         the second dimension (columns) is with respect to number of regressors.
-
 
   Returns:
     numpy.ndarray: A 3D beta-error matrix of tuples where each cell has a tuple
@@ -161,20 +150,20 @@ if __name__ == "__main__":
   num_cores = int(sys.argv[3])
   all_subjects_all_roi_fc_matrix = np.load(all_subjects_all_roi_fc_matrix_path)
   regressors_matrix = np.load(regressors_matrix_path)
+  # Assert that regressors_matrix is full rank i.e. columns are independent.
+  assert npl.matrix_rank(regressors_matrix) == regressors_matrix.shape[1]
+  # Get the condition number of regressor_matrix, if it is very high then the
+  # solutions of the linear system of equations (GLM) is prone to large
+  # numerical errors as the matrix is mostly singular i.e. non invertible.
+  print "Condition number of regressors_matrix (design matrix): %s" % npl.cond(
+      regressors_matrix)
 
   # Do data parallelization by dividing all_subjects_all_roi_fc_matrix equally
   # into bins equal to num_cores. Division is on ROIs.
   num_subs_fc_matrix, rois, bx, by, bz = all_subjects_all_roi_fc_matrix.shape
   pool = Pool(num_cores)
 
-  rois_sample = rois / num_cores
-  rois_range_list = []
-  for core in xrange(num_cores):
-    if core == num_cores-1:
-      rois_range_list.append((core*rois_sample, rois))
-    else:
-      rois_range_list.append((core*rois_sample, (core+1)*rois_sample))
-
+  rois_range_list = get_rois_range_list(rois, num_cores)
   data_input_list = [(
       all_subjects_all_roi_fc_matrix[:, roi_range[0]:roi_range[1]],
       regressors_matrix) for roi_range in rois_range_list]
@@ -182,12 +171,13 @@ if __name__ == "__main__":
   all_rois_be_mat_list = pool.map(do_group_level_glm, data_input_list)
   # all_rois_be_mat_list is a list of lists (e.g. [[3D_mat1, 3D_mat2, ...], ...,
   # [3D_mat1, 3D_mat2, ...]]), such that each element list is a list of 3D
-  # matrices. The element lists have length equal to the number of rois
-  # they intook. Each ROI correspond to one 3D matrix. The extenal list has
-  # length equal to the number of processors.
+  # matrices. The element lists have length equal to the number of ROIs they
+  # intook. Each ROI corresponds to one 3D matrix. The extenal list has length
+  # equal to the number of processors passed in arguments.
   result = []
   for rois_be_mat_list in all_rois_be_mat_list:
     result.extend(rois_be_mat_list)
   result = np.array(result)
   assert result.shape == (rois, bx, by, bz)
   np.save("all_rois_beta_error_tuple_4D_matrix", result)
+  print "Result saved in all_rois_beta_error_tuple_4D_matrix.npy matrix"
