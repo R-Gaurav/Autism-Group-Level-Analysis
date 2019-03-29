@@ -95,7 +95,7 @@ def get_regressors_matrix(df, asd_subs_list, tdh_subs_list, clm_name_list):
   reg_col_list.append(eye_open)
   reg_col_list.append(eye_closed)
 
-  # Append rest of the column values.
+  # Append rest of the column values. ["FIQ", "AGE_AT_SCAN"]
   for clm_name in clm_name_list:
     reg_col_list.append(df.loc[all_subs_indices, clm_name].tolist())
   ######################### PREPARATION DONE #############################
@@ -117,7 +117,9 @@ def get_no_missing_vals_df(df):
   Returns:
     pandas.DataFrame
   """
-  dc_clm_names = ["DX_GROUP", "FIQ", "HANDEDNESS_CATEGORY", "EYE_STATUS_AT_SCAN"]
+  dc_clm_names = [
+      "DX_GROUP", "FIQ", "AGE_AT_SCAN", "HANDEDNESS_CATEGORY",
+      "EYE_STATUS_AT_SCAN"]
   rows_indices_no_na_list = get_row_indices_with_no_missing_vals_list(
       df, dc_clm_names)
   no_na_df = df.loc[rows_indices_no_na_list]

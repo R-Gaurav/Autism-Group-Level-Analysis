@@ -37,7 +37,7 @@ asd_subjects_list = pheno_no_na_no_dval_df.loc[
     pheno_no_na_no_dval_df["DX_GROUP"] == 1].index.tolist()
 tdh_subjects_list = pheno_no_na_no_dval_df.loc[
     pheno_no_na_no_dval_df["DX_GROUP"] == 2].index.tolist()
-reg_clm_list = ["FIQ"]
+reg_clm_list = ["FIQ", "AGE_AT_SCAN"]
 regressors_matrix = get_regressors_matrix(
     pheno_no_na_no_dval_df, asd_subjects_list, tdh_subjects_list, reg_clm_list)
 for sub_index, sub_pheno in zip(
