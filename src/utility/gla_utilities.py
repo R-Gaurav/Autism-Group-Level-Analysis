@@ -9,7 +9,7 @@ import numpy.linalg as npl
 import numpy as np
 from scipy import stats
 
-def get_beta_group_level_glm(Y, X):
+def get_beta_and_error_group_level_glm(Y, X):
   """
   Args:
     Y (numpy.ndarray): An 2D array of correlation values (between seed voxel and
@@ -83,7 +83,10 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   is np.dot(contrast.T, voxel_beta_vec) = 0. Also calculates two-tailed p-value
   for the calculated t-score.
 
-  Ref: http://www.brainvoyager.com/bvqx/doc/UsersGuide/StatisticalAnalysis/TheGeneralLinearModel.html
+  Ref:
+    http://www.brainvoyager.com/bvqx/doc/UsersGuide/StatisticalAnalysis/TheGeneralLinearModel.html
+    https://matthew-brett.github.io/teaching/glm_intro.html
+    Basic Econometrics: Book by Damodar N. Gujarati, Appendix C
 
   Args:
     voxel_beta_vec (numpy.ndarray): A 1D column matrix of beta values of
@@ -101,7 +104,13 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   """
   # Calculate t-value.
   numerator = contrast.T.dot(voxel_beta_vec)
-  var_e = voxel_error_vec.var(ddof=2) # Set DDOF = 2 as two groups are accounted.
+  # Error should be that obtained after GLM for a voxel.
+  # DDOF should be equal to the rank of dsgn_matrix_x. In the __main__ of
+  # do_statistical_analysis.py it has been asserted that
+  # npl.matrix_rank(dsgn_matrix_x) is equal to the number of columns in the
+  # dsgn_matrix_x. Calculation of npl.matrix_rank() for such a similar matrix
+  # takes 0.02 secs on average, hence to save time, set DDOF = number of columns.
+  var_e = voxel_error_vec.var(ddof=dsgn_matrix_x.shape[1])
   xtx_inv = npl.inv(dsgn_matrix_x.T.dot(dsgn_matrix_x))
   denominator = np.sqrt(var_e * contrast.T.dot(xtx_inv).dot(contrast))
   t_score = float(numerator) / denominator

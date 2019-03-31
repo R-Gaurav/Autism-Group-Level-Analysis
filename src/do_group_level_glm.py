@@ -19,7 +19,7 @@ import numpy as np
 import numpy.linalg as npl
 import sys
 
-from utility.gla_utilities import get_beta_group_level_glm
+from utility.gla_utilities import get_beta_and_error_group_level_glm
 from utility.exp_utilities import get_rois_range_list
 
 def do_group_level_glm(params):
@@ -119,7 +119,7 @@ def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
   assert Y.shape == (num_subjects, bx*by*bz)
   # Get the beta values and residual/error values.
   single_roi_all_voxels_beta_mat, single_roi_all_voxels_error_mat = (
-      get_beta_group_level_glm(Y, regressors_matrix))
+      get_beta_and_error_group_level_glm(Y, regressors_matrix))
 
   # Assert shape of single_roi_all_voxels_beta_mat to be equal to number of
   # regressors x number of brain voxels.
