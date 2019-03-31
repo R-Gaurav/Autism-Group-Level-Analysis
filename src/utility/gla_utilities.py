@@ -116,7 +116,7 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   t_score = float(numerator) / denominator
 
   # Calculate p-value.
-  # Degree of Freedom = Number of subjects - 2 (since 2 groups are accounted).
-  dof = voxel_error_vec.shape[0] - 2
-  p_value = stats.t.sf(t_score, dof) * 2 # A two tailed p-value.
+  # Degree of Freedom = Number of subjects - rank of dsgn_matrix_x.
+  dof = voxel_error_vec.shape[0] - dsgn_matrix_x.shape[1]
+  p_value = stats.t.sf(np.abs(t_score), dof) * 2 # A two tailed p-value.
   return t_score, p_value
