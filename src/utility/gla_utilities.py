@@ -105,18 +105,28 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   # Calculate t-value.
   numerator = contrast.T.dot(voxel_beta_vec)
   # Error should be that obtained after GLM for a voxel.
-  # DDOF should be equal to the rank of dsgn_matrix_x. In the __main__ of
-  # do_statistical_analysis.py it has been asserted that
+  # Degree of Freedom = Number of subjects - rank of dsgn_matrix_x. In the
+  # __main__ of do_statistical_analysis.py it has been asserted that
   # npl.matrix_rank(dsgn_matrix_x) is equal to the number of columns in the
   # dsgn_matrix_x. Calculation of npl.matrix_rank() for such a similar matrix
-  # takes 0.02 secs on average, hence to save time, set DDOF = number of columns.
-  var_e = voxel_error_vec.var(ddof=dsgn_matrix_x.shape[1])
+  # takes 0.02 secs on average, hence to save time, set rank of dsgn_matrix_x =
+  # number of columns in dsgn_matrix_x.
+  dof = voxel_error_vec.shape[0] - dsgn_matrix_x.shape[1]
+  # In BrainVoyager, variance of error (i.e. Var(e)) is used instead of Mean
+  # Residual Sum of Squares (MRSS). One should note that MRSS is equal to Var(e)
+  # in case mean of error vector is 0. Hence, one could also use following
+  # formula to calculate Standard Error (i.e. "denominator"):
+  # var_e = voxel_error_vec.var(ddof=dsgn_matrix_x.shape[1]) in place of "mrss".
+  # I have verified in case when mean of voxel_error_vec is 0, mrss and var_e are
+  # same. The OLS solution of GLM assumes that residual/error (here
+  # voxel_error_vec) has a multivariate Normal distribution with mean 0. Hence
+  # an ideal solution of GLM will always produce voxel_error_vec with mean 0.
+  mrss = float(voxel_error_vec.T.dot(voxel_error_vec)) / dof
   xtx_inv = npl.inv(dsgn_matrix_x.T.dot(dsgn_matrix_x))
-  denominator = np.sqrt(var_e * contrast.T.dot(xtx_inv).dot(contrast))
+  denominator = np.sqrt(mrss * contrast.T.dot(xtx_inv).dot(contrast))
   t_score = float(numerator) / denominator
 
   # Calculate p-value.
-  # Degree of Freedom = Number of subjects - rank of dsgn_matrix_x.
-  dof = voxel_error_vec.shape[0] - dsgn_matrix_x.shape[1]
   p_value = stats.t.sf(np.abs(t_score), dof) * 2 # A two tailed p-value.
+
   return t_score, p_value
