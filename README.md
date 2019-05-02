@@ -8,3 +8,7 @@ This repo is an extension of [Autism Connectome Analysis](
 https://github.com/varun-invent/Autism-Connectome-Analysis/tree/varun) where the
 details of another attempt to find statistically significant link differences can
 be found, along with pre-processing details.
+
+> src/: Contains the source code for the experimental analysis.
+
+> misc/: Contains the rough code NOT used for the experimental analysis.

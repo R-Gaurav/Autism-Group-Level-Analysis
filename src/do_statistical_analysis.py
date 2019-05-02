@@ -1,4 +1,6 @@
 #
+# Autism Group Level Analysis
+#
 # Author: Ramashish Gaurav
 #
 # This file finds the t value and p value for each brain voxel for each ROI. A
@@ -7,97 +9,124 @@
 #
 # Note: It does a two tailed t test.
 #
-# Usage: python do_statistical_analysis.py <path/to/beta_error_tuple_mat.npy> <
-# path/to/regressor_mat.npy> <num_cores>
+# Usage: python2 do_statistical_analysis.py
+#
+# Make sure that the design_matrix used in file do_group_level_glm_analysis.py
+# and in do_statistical_analysis.py are same.
+# Also, the BATCH_SIZE should remain same across create_fc_matrices_for_exp.py,
+# do_group_level_glm_analysis.py, and do_statistical_analysis.py .
 #
 
-from multiprocessing import Pool
+import datetime
 import numpy as np
-import numpy.linalg as npl
-import sys
 
-from utility.gla_utilities import get_t_val_p_val_for_voxels
+from multiprocessing import Pool
+
+from utility.gla_utilities import do_statistical_analysis
 from utility.exp_utilities import get_interval_list
+from utility.constants import (
+    TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH, LOG_FILE_PATH, BATCH_SIZE,
+    ABIDE_1, ABIDE_2, ABIDE_1_BW_BE_TPL_DATA, ABIDE_2_BW_BE_TPL_DATA,
+    ABIDE_1_BW_TP_TPL_DATA, ABIDE_2_BW_TP_TPL_DATA)
+from utility import log
 
-def do_statistical_analysis(params):
-  """
-  Does a statistical analysis i.e.finds t and p values for each brain voxel in
-  the passed 3D matrix.
+from create_design_matrix_for_exp import get_design_matrix_for_the_exp
 
-  Args:
-    params (tuple): A 3 element tuple with below format:
-      rois_4D_be_tuple_matrix, contrast, regressors_matrix = (
-          params[0], params[1], params[2])
+num_cores = 32
 
-    rois_4D_be_tuple_matrix (numpy.ndarray): A 4D matrix where the first
-        dimension corresponds to the number of ROIs and last three dimensions
-        corresponds to the dimensions of the brain for a single ROI.
+log.configure_log_handler(
+    "%s_%s.log" % (LOG_FILE_PATH+__file__, datetime.datetime.now()))
 
-    contrast (numpy.nderray): A 1D column matrix which denotes the contrast of
-        the regressors.
+is_abide1 = True # If is_abide1 = True, do group level GLM for ABIDE1 else ABIDE2.
 
-    regressors_matrix (numpy.ndarray): A 2D matrix of regressors, where number
-        of rows is equal to the number of subjects and number of columns is
-        equal to the number of regressors.
-  """
-  rois_4d_be_tuple_matrix, contrast, regressors_matrix = (
-      params[0], params[1], params[2])
-  rois, bx, by, bz = rois_4d_be_tuple_matrix.shape
-  all_rois_tp_tuple_3d_mat_list = []
+if is_abide1:
+  abide = ABIDE_1
+  batch_wise_be_tpl_data = ABIDE_1_BW_BE_TPL_DATA
+  batch_wise_tp_tpl_data = ABIDE_1_BW_TP_TPL_DATA
+else:
+  abide = ABIDE_2
+  batch_wise_be_tpl_data = ABIDE_2_BW_BE_TPL_DATA
+  batch_wise_tp_tpl_data = ABIDE_2_BW_TP_TPL_DATA
 
-  for roi in range(rois):
-    # Get a brain map for the ROI where each cell is (t-value, p-value) tuple.
-    single_roi_t_p_tuple_3d_matrix = get_t_val_p_val_for_voxels(
-        rois_4d_be_tuple_matrix[roi], contrast, regressors_matrix)
-    all_rois_tp_tuple_3d_mat_list.append(single_roi_t_p_tuple_3d_matrix)
-    print "Statistical Analysis, ROI: %s Done!" % roi
+log.INFO("Starting statistical analysis for %s" % abide)
 
-  # Note: all_rois_tp_tuple_3d_mat_list is a list, where each element is a 3D
-  # matrix of brain in which each cell stores a tuple of (t-value, p-value) with
-  # respect to each voxel of the brain. Each element corresonds to a single ROI.
-  return all_rois_tp_tuple_3d_mat_list
+################################################################################
+################ Get the design matrix ###################
+################################################################################
 
-if __name__ == "__main__":
-  all_rois_be_tuple_matrix_path = sys.argv[1] # A *.npy file.
-  regressor_matrix_path = sys.argv[2] # A *.npy file.
-  num_cores = int(sys.argv[3])
+log.INFO("Obtaining %s design matrix" % abide)
+design_matrix, regressors_strv = get_design_matrix_for_the_exp(is_abide1)
+log.INFO("Regressors String Vec: %s" % regressors_strv)
+################################################################################
+################## Set the contrast vector ####################
+################################################################################
+# The first entry in the design_matrix with intercept could be either ASD or
+# TDH column, with the intercept being the last column.
+contrast = np.matrix([
+    1, # = ASD - TDH (Since in the design matrix, the first column is ASD and
+    0, # last column is that of the intercept).
+    0,
+    0,
+    0,
+    0,
+    0
+  ]).T
+log.INFO("Contrast vector: %s" % contrast)
+# Assert the size of contrast vector is equal to the number of cols in dsgn mat.
+assert contrast.shape[0] == design_matrix.shape[1]
+################################################################################
+################# Start the parallel statistical analysis process ##############
+################################################################################
+log.INFO("Starting T and P value calculation for %s" % abide)
+# Create a pool of processes.
+pool = Pool(num_cores)
 
-  all_rois_be_tuple_matrix = np.load(all_rois_be_tuple_matrix_path)
-  regressors_matrix = np.load(regressor_matrix_path) # num_subjects x num_regrs
-  rois, bx, by, bz = all_rois_be_tuple_matrix.shape
-  pool = Pool(num_cores)
+for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, BATCH_SIZE):
+  batch_end = min(batch_start + BATCH_SIZE, TOTAL_NUMBER_OF_ROIS)
+  log.INFO("Reading the batch: %s %s" % (batch_start, batch_end))
+  all_subs_batch_wise_rois_be_tuple_matrix = np.load(
+      OUTPUT_FILE_PATH + batch_wise_be_tpl_data +
+      "batch_%s_%s_rois_beta_error_tuple_4D_matrix_dsgn_mat_%s"
+      % (batch_start, batch_end, regressors_strv))
 
-  # Create contrast of autism - healthy with 0's for other regressors.
-  contrast = np.matrix([1, -1, 0, 0]).T
-  # Assert that number of rows of contrast is equal to the number of columns
-  # in columns in regressor matrix.
-  assert contrast.shape[0] == regressors_matrix.shape[1]
-  # Assert that regressors_matrix is full rank i.e. columns are independent.
-  assert npl.matrix_rank(regressors_matrix) == regressors_matrix.shape[1]
+  rois, bx, by, bz = all_subs_batch_wise_rois_be_tuple_matrix.shape
 
-  # Get the condition number of regressor_matrix, if it is very high then the
-  # solutions of the linear system of equations (GLM) is prone to large
-  # numerical errors as the matrix is mostly singular i.e. non invertible.
-  print "Condition number of regressors_matrix (design matrix): %s" % npl.cond(
-      regressors_matrix)
-
-  # Do data parallelization to divide all_rois_be_tuple_matrix to each processor.
-  # Division is on ROIs.
+  # Do data parallelization to divide all_subs_batch_wise_rois_be_tuple_matrix
+  # to each processor. Division is on ROIs.
   rois_range_list = get_interval_list(rois, num_cores)
-  data_input_list = [(
-      all_rois_be_tuple_matrix[roi_range[0]:roi_range[1]], contrast,
-      regressors_matrix) for roi_range in rois_range_list]
+  log.INFO("ROIs range list: %s" % rois_range_list)
 
-  all_rois_tp_stat_mat_list = pool.map(do_statistical_analysis, data_input_list)
-  # all_rois_tp_stat_mat is a list of lists (e.g. [[3D_mat1, 3D_mat2, ...], ...,
-  # [3D_mat1, 3D_mat2, ...]]), such that each element list is a list of 3D
+  data_input_list = [(
+      all_subs_batch_wise_rois_be_tuple_matrix[roi_range[0]:roi_range[1]].copy(),
+      contrast, design_matrix) for roi_range in rois_range_list]
+  del all_subs_batch_wise_rois_be_tuple_matrix
+
+  log.INFO("Starting statistical analysis for batch: %s %s"
+           % (batch_start, batch_end))
+
+  batch_wise_rois_tp_mat_list = pool.map(do_statistical_analysis, data_input_list)
+  # batch_wise_rois_tp_mat_list is a list of lists (e.g. [[3D_mat1, 3D_mat2, ...]
+  # , ..., [3D_mat1, 3D_mat2, ...]]), such that each element list is a list of 3D
   # matrices. The element lists have length equal to the number of ROIs they
   # intook. Each ROI corresponds to one 3D matrix. The external list has length
   # equal to the number of processors passed in arguments.
+  del data_input_list
+
+  log.INFO("Statistical results for the batch %s %s obtained"
+           % (batch_start, batch_end))
   result = []
-  for rois_tp_stat_mat_list in all_rois_tp_stat_mat_list:
+  for rois_tp_stat_mat_list in batch_wise_rois_tp_mat_list:
     result.extend(rois_tp_stat_mat_list)
   result = np.array(result)
   assert result.shape == (rois, bx, by, bz)
-  np.save("all_rois_tp_stat_matrix", result)
-  print "Result saved in all_rois_tp_stat_matrix.npy matrix"
+
+  log.INFO("Saving the t-p value stat matrix obtained from statistical analysis "
+           "for batch %s %s ..." % (batch_start, batch_end))
+  np.save(OUTPUT_FILE_PATH + batch_wise_tp_tpl_data +
+          "batch_%s_%s_rois_tp_stat_tuple_4D_matrix_dsgn_mat_%s_contrast_%s"
+          % (batch_start, batch_end, regressors_strv,
+          "_".join(str(c[0,0]) for c in contrast)), result)
+  log.INFO("T and P value stat matrix obtained from statistical analysis saved "
+           "for batch: %s %s" % (batch_start, batch_end))
+
+log.INFO("Hip Hip Hurray! Statistical Analysis Done!")

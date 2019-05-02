@@ -8,9 +8,10 @@ import nibabel as nib
 import numpy as np
 import pickle
 
-ROI_WITH_ZERO_FC_MAT = 254 # 0 based indexing.
-TOTAL_NUMBER_OF_ROIS = 274
-OUTPUT_FILE_PATH = "/mnt/scratch/svn50/ramashish/all_subs_batch_wise_ROI_fc_matrix"
+import log
+from constants import (
+    ROI_WITH_ZERO_FC_MAT, TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH,
+    ABIDE_1_BW_ROI_FC_DATA, ABIDE_2_BW_ROI_FC_DATA)
 
 def get_interval_list(num, num_cores):
   """
@@ -23,8 +24,10 @@ def get_interval_list(num, num_cores):
   Returns:
     []: A list of (roi_start_of_range, roi_end_of_range).
   """
+  num_cores = num if num < num_cores else num_cores
   num_sample = num // num_cores
   num_range_list = []
+
   for core in range(num_cores):
     if core == num_cores-1:
       num_range_list.append((core*num_sample, num))
@@ -57,10 +60,12 @@ def get_valid_subject_ids_wrt_fc_data(fc_files_path, sub_list, is_abide1):
   have only the 254th ROI (0 based indexing) FC matrix zero or no ROI FC matrix
   as all zero. Second list denotes the subjects' SUB_ID who have no FC matrices.
   Third list of subjects' SUB_ID have ROIs other than 254th one as all zero FC
-  matrix.
+  matrix. Fourth list of subjects' SUB_ID have ROIS matrices but not equal to
+  TOTAL_NUMBER_OF_ROIS.
 
   The subject IDs with no FC matrices are discarded. Subject IDs with zero
-  valued FC matrices other than the 254th one are also discarded.
+  valued FC matrices other than the 254th one are also discarded, as well as
+  subject IDs who have ROIs less than (or more than?) the TOTAL_NUMBER_OF_ROIS.
 
   Args:
     fc_files_path (str): /Path/to/FC/matrices/func2std_xform
@@ -68,7 +73,8 @@ def get_valid_subject_ids_wrt_fc_data(fc_files_path, sub_list, is_abide1):
     sub_list ([int]): A list of subject IDs for which FC matrices are analysed.
 
   Returns:
-    [int], [int], [int]: valid subs, subs with no FC, subs with zero FCs.
+    [int], [int], [int], [int]: valid subs, subs with no FC, subs with zero FCs.
+        subs with ROIs not equal to TOTAL_NUMBER_OF_ROIS.
         Note that these lists contain the SUB_ID of subjects.
   """
   if is_abide1:
@@ -82,8 +88,11 @@ def get_valid_subject_ids_wrt_fc_data(fc_files_path, sub_list, is_abide1):
 
   subs_with_no_fc_mats = [] # Contains subject IDs having no FC matrices.
 
-  # Contains subject IDs having all zero FC matrices at ROI other than 254th.
+  # Contains subject IDs having all zero FC matrices for ROI other than 254th.
   subs_with_zero_fc_mats = []
+
+  # Contains subject IDs who do not have all the 274 FC matrices.
+  subs_with_incmp_fc_mats = []
 
   # Contains subject IDs which have either no ROI FC matrix as all 0 or have
   # only the 254th ROI FC matrix as 0.
@@ -93,25 +102,35 @@ def get_valid_subject_ids_wrt_fc_data(fc_files_path, sub_list, is_abide1):
     try:
       data = nib.load(fc_files_path.format(sub_id, sub_id)).get_fdata() # 4D mat.
       _, _, _, num_rois = data.shape
+      if num_rois != TOTAL_NUMBER_OF_ROIS:
+        log.INFO("Subject: %s has incomplete number of ROIs" % sub_id)
+        subs_with_incmp_fc_mats.append(sub_id)
+        continue
+
       sub_zero_rois = [] # Contains the subject's ROIs indices which are all 0.
+
       for roi in range(num_rois):
-        if np.sum(data[:, :, :, roi]) == 0:
+        if np.all(data[:, :, :, roi] == 0): # Are all the cells 0?
           sub_zero_rois.append(roi)
 
       # Ignore subjects having zero FC matrix at ROI other than the 254th one.
       if sub_zero_rois == [] or sub_zero_rois == [ROI_WITH_ZERO_FC_MAT]:
         all_valid_subs.append(sub_id)
       else:
-        print("Subject: %s has zero FC matrices at ROIs: %s"
-              % (sub_id, sub_zero_rois))
+        log.INFO("Subject: %s has zero FC matrices at ROIs: %s"
+                 % (sub_id, sub_zero_rois))
         subs_with_zero_fc_mats.append(sub_id)
 
+      if data.any(): # If there is an ob ref by `data` delete it to save memory.
+        del data # Delete the object reference.
+
     except Exception as e: # Ignore subjects having no FC matrices.
-      print("Error: {}, Subject with ID {} does not have a FC brain map".format(
-            e, sub_id))
+      log.ERROR("Error: {}, Subject with ID {} does not have a FC brain "
+               "map".format(e, sub_id))
       subs_with_no_fc_mats.append(sub_id)
 
-  return all_valid_subs, subs_with_no_fc_mats, subs_with_zero_fc_mats
+  return (all_valid_subs, subs_with_no_fc_mats, subs_with_zero_fc_mats,
+          subs_with_incmp_fc_mats)
 
 def construct_subs_batchwise_rois_fc_5D_mats(fc_files_path, df, asd_row_ids,
                                              tdh_row_ids, batch_size, is_abide1):
@@ -123,7 +142,7 @@ def construct_subs_batchwise_rois_fc_5D_mats(fc_files_path, df, asd_row_ids,
   This function expects row IDs of subjects who are considered valid, and
   removes the 254th ROI FC matrix.
 
-  Note: Output files are save at OUTPUT_FILE_PATH (macro defined above).
+  Note: Output files are saved at OUTPUT_FILE_PATH (macro defined above).
 
   Args:
     fc_files_path (str): File path to the FC matrices.
@@ -133,41 +152,51 @@ def construct_subs_batchwise_rois_fc_5D_mats(fc_files_path, df, asd_row_ids,
     batch_size (int): Batch size of ROIs to be saved.
     is_abide1 (bool): True if passed args are with respect to ABIDE1 else False.
   """
+  output_file_path = OUTPUT_FILE_PATH
+
   sub_ids = df.loc[asd_row_ids]["SUB_ID"].tolist()
   sub_ids.extend(df.loc[tdh_row_ids]["SUB_ID"].tolist())
 
   if is_abide1:
     fc_files_path += "/_subject_id_{}/func2std_xform/00{}_fc_map_flirt.nii.gz"
+    output_file_path += ABIDE_1_BW_ROI_FC_DATA
   else:
     fc_files_path += "/_subject_id_{}/func2std_xform/{}_fc_map_flirt.nii.gz"
+    output_file_path += ABIDE_2_BW_ROI_FC_DATA
 
   for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, batch_size):
     batch_end = min(batch_start + batch_size, TOTAL_NUMBER_OF_ROIS)
     roi_slice = range(batch_start, batch_end)
     # Remove the all zero FC matrix at 254th ROI.
-    if ROI_WITH_ZERO_FC_MAT >= batch_start and ROI_WITH_ZERO_FC_MAT <= batch_end:
+    if ROI_WITH_ZERO_FC_MAT >= batch_start and ROI_WITH_ZERO_FC_MAT < batch_end:
       roi_slice.remove(ROI_WITH_ZERO_FC_MAT)
 
     all_subs_batch_fc_matrix = []
-    for sub_id in sub_ids:
+    for sub_id in sub_ids: # sub_ids has first ASD subs and then TDH subs.
       data = nib.load(fc_files_path.format(sub_id, sub_id)).get_fdata() # 4D mat.
       sub_batch_fc_matrix = []
       for roi in roi_slice:
-        sub_batch_fc_matrix.append(data[:, :, :, roi])
+        sub_batch_fc_matrix.append(data[:, :, :, roi].copy())
       all_subs_batch_fc_matrix.append(sub_batch_fc_matrix)
+      del data
+      del sub_batch_fc_matrix
+      log.INFO("Batch: [%s, %s], sub ID: %s done."
+               % (batch_start, batch_end-1, sub_id))
 
+    log.INFO("Converting all_subs_batch_fc_matrix to np.array")
     all_subs_batch_fc_matrix = np.array(all_subs_batch_fc_matrix)
-    print("ROI_SLICE: %s, all_subs_batch_fc_matrix.shape: %s" % (
-          roi_slice, all_subs_batch_fc_matrix.shape))
+    log.INFO("ROI_SLICE: %s, all_subs_batch_fc_matrix.shape: %s" % (
+             roi_slice, all_subs_batch_fc_matrix.shape))
     assert len(all_subs_batch_fc_matrix.shape) == 5
-    np.save(OUTPUT_FILE_PATH+"/all_subs_%s_start_%s_end_ROIs_fc_matrix.npy" % (
-            batch_start, batch_end), all_subs_batch_fc_matrix)
-    print("Batch %s to %s done!" % (batch_start, batch_end))
+    np.save(output_file_path+"/all_subs_%s_start_%s_end_ROIs_fc_5D_matrix.npy"
+            % (batch_start, batch_end), all_subs_batch_fc_matrix)
+    log.INFO("ROIs batch %s to %s inclusive done!" % (batch_start, batch_end-1))
+    del all_subs_batch_fc_matrix
 
 def get_regressors_mask_list(asd=None, tdh=None, leh=None, rih=None, eyo=None,
-                             eyc=None, fiq=None, age=None):
+                             eyc=None, fiq=None, age=None, ipt=None):
   """
-  Creates and returns a regressors mask.
+  Creates and returns a regressors mask and a regressors string vector.
 
   Args:
     asd (bool): True if ASD column is to be included in the design matrix.
@@ -178,19 +207,67 @@ def get_regressors_mask_list(asd=None, tdh=None, leh=None, rih=None, eyo=None,
     eyc (bool): True if eye closed column is to be included in the design matrix.
     fiq (bool): True if FIQ column is to be included in the design matrix.
     age (bool): True if AGE_AT_SCAN column is to be included in the design matrix.
+    ipt (bool): True if Intercept column is to be included in the design matrix.
 
   Returns:
-    [int]: list of bools e.g. [1, 0, 0, ...]
+    [int], str: list of bools e.g. [1, 0, 0, ...], regressors string vector.
   """
   regressors_mask = []
+  regressors_strv = ""
 
-  regressors_mask.append(1 if asd else 0)
-  regressors_mask.append(1 if tdh else 0)
-  regressors_mask.append(1 if leh else 0)
-  regressors_mask.append(1 if rih else 0)
-  regressors_mask.append(1 if eyo else 0)
-  regressors_mask.append(1 if eyc else 0)
-  regressors_mask.append(1 if fiq else 0)
-  regressors_mask.append(1 if age else 0)
+  if asd:
+    regressors_mask.append(1)
+    regressors_strv += "ASD_"
+  else:
+    regressors_mask.append(0)
 
-  return regressors_mask
+  if tdh:
+    regressors_mask.append(1)
+    regressors_strv += "TDH_"
+  else:
+    regressors_mask.append(0)
+
+  if leh:
+    regressors_mask.append(1)
+    regressors_strv += "LEH_"
+  else:
+    regressors_mask.append(0)
+
+  if rih:
+    regressors_mask.append(1)
+    regressors_strv += "RIH_"
+  else:
+    regressors_mask.append(0)
+
+  if eyo:
+    regressors_mask.append(1)
+    regressors_strv += "EYO_"
+  else:
+    regressors_mask.append(0)
+
+  if eyc:
+    regressors_mask.append(1)
+    regressors_strv += "EYC_"
+  else:
+    regressors_mask.append(0)
+
+  if fiq:
+    regressors_mask.append(1)
+    regressors_strv += "FIQ_"
+  else:
+    regressors_mask.append(0)
+
+  if age:
+    regressors_mask.append(1)
+    regressors_strv += "AGE_"
+  else:
+    regressors_mask.append(0)
+
+  # Make sure that this mask for the intercept is always at last.
+  if ipt:
+    regressors_mask.append(1)
+    regressors_strv += "IPT"
+  else:
+    regressors_mask.append(0)
+
+  return regressors_mask, regressors_strv

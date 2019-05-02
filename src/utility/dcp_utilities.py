@@ -142,7 +142,7 @@ def get_valid_subject_ids_with_complete_phenotype(pheno_data_path, is_abide1):
     is_abide1 (bool); Does the phenotype csv belong to ABIDE1?
 
   Returns:
-    list, list: List of ASD subjects, List of TDH subjects: SUB_IDs list.
+    list, list: List of ASD subjects, List of TDH subjects (SUB_IDs list).
   """
   pheno_df = pd.read_csv(pheno_data_path, encoding="ISO-8859-1")
   # Remove the NA values from phenotype_df with respect to the considered
@@ -178,6 +178,8 @@ def get_valid_subject_ids_with_complete_phenotype(pheno_data_path, is_abide1):
 def get_asd_and_tdh_subs_row_indices(df, sub_id_list):
   """
   Returns two individual lists of row indices for ASD and TDH subjects.
+  If "DX_GROUP" is 1 => Autism/ASD.
+  If "DX_GROUP" is 2 => Control/TDH.
 
   Args:
     df(pandas.DataFrame): DataFrame of subject phenotypes.
@@ -193,23 +195,19 @@ def get_asd_and_tdh_subs_row_indices(df, sub_id_list):
 
 def get_processed_design_matrix(pheno_df, asd_row_ids, tdh_row_ids,
                                 regressors_mask,
-                                clm_name_list=["FIQ", "AGE_AT_SCAN"],
-                                include_intercept=True):
+                                clm_name_list=["FIQ", "AGE_AT_SCAN"]):
   """
   Returns a design matrix with only those regressors which are mentioned in
-  the regressors_mask. By default the returned design matrix also includes the
-  intercept (of 1s) in the last column.
+  the regressors_mask.
 
   Args:
     pheno_df (pandas.DataFrame): The pehnotype dataframe of subjects.
     asd_row_ids ([int]): ASD subjects' row indices in the pheno_df.
     tdh_row_ids ([int]): TDH subjects' row indices in the pehno_df.
-    regressors_mask([]): A list of bools i.e. [1, 0, 0, 1, 1, ...]
     clm_name_list ([str]): List of column names of pheno_df to be included in
         the design matrix. Note: The clm_name_list should not have "DX_GROUP",
         "HANDEDNESS_CATEGORY" and "EYE_STATUS_AT_SCAN" column names, as these
         columns are accounted separately in get_phenotypes_regressors_matrix().
-    include_intercept(bool): Include the intercept of 1s if True else don't.
 
   Returns:
     numpy.ndarray: The processed design matrix.
@@ -217,19 +215,25 @@ def get_processed_design_matrix(pheno_df, asd_row_ids, tdh_row_ids,
   pheno_regressors_mat = get_phenotypes_regressors_matrix(
       pheno_df, asd_row_ids, tdh_row_ids, clm_name_list)
 
-  # Standardize FIQ and AGE_AT_SCAN
-  pheno_regressors_mat[:, 6] = stats.zscore(pheno_regressors_mat[:, 6])
-  pheno_regressors_mat[:, 7] = stats.zscore(pheno_regressors_mat[:, 7])
-
   # The sequence of columns in pheno_regressors_mat returned by
   # get_phenotypes_regressors_matrix() is in the following order:
   # ["ASD", "TDH", "LEFT_H", "RIGHT_H", "EYE_OPEN", "EYE_CLOSED", "FIQ",
   # "AGE_AT_SCAN"].
-  assert len(regressors_mask) == pheno_regressors_mat.shape[1]
-  clms_indices = [i for i in xrange(len(regressors_mask)) if regressors_mask[i]]
+  # Standardize FIQ and AGE_AT_SCAN
+  pheno_regressors_mat[:, 6] = stats.zscore(pheno_regressors_mat[:, 6])
+  pheno_regressors_mat[:, 7] = stats.zscore(pheno_regressors_mat[:, 7])
+
+  # Since the last element of regressors_mask always denotes the intercept, get
+  # rid of it in below calculations since pheno_regressors_mat obtained from the
+  # phenotypes CSV data does not have the intercept.
+  assert len(regressors_mask[:-1]) == pheno_regressors_mat.shape[1]
+  clms_indices = [
+      i for i in xrange(len(regressors_mask[:-1])) if regressors_mask[i]]
   ret_dsgn_mat = pheno_regressors_mat[:, clms_indices]
 
-  if include_intercept:
+  # Last element of regressors_mask indicates whether or not to include the
+  # intercept of 1s as the last column of the design matrix.
+  if regressors_mask[-1]:
     ret_dsgn_mat = np.c_[ret_dsgn_mat, np.ones(pheno_regressors_mat.shape[0])]
 
   return ret_dsgn_mat
