@@ -9,7 +9,7 @@
 # The order of columns in regressors_matrix is: "ASD", "TDH", "LEFT_H", "RIGHT_H",
 # "EYE_OPEN", "EYE_CLOSED", "FIQ".
 #
-
+import numpy.linalg as npl
 import numpy as np
 import pandas as pd
 
@@ -20,16 +20,20 @@ from utility.dcp_utilities import (
 #phenotype_csv = "../data/Phenotypic_V1_0b.csv"
 phenotype_csv = "../data/ABIDEII_Composite_Phenotypic.csv"
 
-pheno_df = pd.read_csv(phenotype_csv)
+pheno_df = pd.read_csv(phenotype_csv, encoding="ISO-8859-1")
 # Remove the NA values from phenotype_df with respect to the considered regressor
 # columns (Note: Column names are mentioned are in get_no_missing_vals_df func).
 pheno_no_na_df = get_no_missing_vals_df(pheno_df)
 
 # Discard the "-9999" values in "HANDEDNESS_CATEGORY", -9999 values in "FIQ"
-# column from pheno_no_na_df.
+# column from pheno_no_na_df. ABIDE 2 has subjects with "EYE_STATUS_AT_SCAN" set
+# as 0, they need to be discarded.
 row_indices_no_discarded_list = get_row_indices_without_discarded_value_list(
-    pheno_no_na_df, [("HANDEDNESS_CATEGORY", "-9999"), ("FIQ", -9999)])
+    pheno_no_na_df, [("HANDEDNESS_CATEGORY", -9999), ("FIQ", -9999),
+    ("EYE_STATUS_AT_SCAN", 0)])
 pheno_no_na_no_dval_df = pheno_no_na_df.loc[row_indices_no_discarded_list]
+
+print "Dataframe shape after discarding the values:", pheno_no_na_no_dval_df.shape
 
 # Get the ASD and TDH subjects indices list and regressor matrix.
 # DX_GROUP = 1 => ASD and DX_GROUP = 2 => TDH.
@@ -40,6 +44,18 @@ tdh_subjects_list = pheno_no_na_no_dval_df.loc[
 reg_clm_list = ["FIQ", "AGE_AT_SCAN"]
 regressors_matrix = get_regressors_matrix(
     pheno_no_na_no_dval_df, asd_subjects_list, tdh_subjects_list, reg_clm_list)
-for sub_index, sub_pheno in zip(
-    asd_subjects_list + tdh_subjects_list, regressors_matrix):
-  print pheno_no_na_no_dval_df.loc[sub_index, "SUB_ID"], sub_pheno
+print "Shape of Design Matrix: ", regressors_matrix.shape
+print "RANK: ", npl.matrix_rank(regressors_matrix)
+print "Condition number of X.T.dot(X): ", npl.cond(
+    regressors_matrix.T.dot(regressors_matrix)), npl.cond(regressors_matrix)
+#print "Saving regressors matrix", np.savetxt(
+#    "ABIDE_1_design_matrix.csv", regressors_matrix, delimiter=",")
+pd.DataFrame(regressors_matrix, columns=["ASD_SUBS","TDH_SUBS", "LEFT_H",
+             "RIGHT_H",	"EYE_OPEN", "EYE_CLOSED",	"FIQ","AGE_AT_SCAN"]).to_csv(
+             "ABIDE_2_design_matrix.csv")
+pd.DataFrame(
+    pheno_no_na_no_dval_df.loc[asd_subjects_list+tdh_subjects_list]["SUB_ID"]
+    ).to_csv("ABIDE_2_sub_ids.csv")
+#for sub_index, sub_pheno in zip(
+#    asd_subjects_list + tdh_subjects_list, regressors_matrix):
+#  print pheno_no_na_no_dval_df.loc[sub_index, "SUB_ID"], sub_pheno
