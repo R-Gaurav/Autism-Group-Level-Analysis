@@ -17,7 +17,7 @@ import numpy.linalg as npl
 import sys
 
 from utility.gla_utilities import get_t_val_p_val_for_voxels
-from utility.exp_utilities import get_rois_range_list
+from utility.exp_utilities import get_interval_list
 
 def do_statistical_analysis(params):
   """
@@ -83,7 +83,7 @@ if __name__ == "__main__":
 
   # Do data parallelization to divide all_rois_be_tuple_matrix to each processor.
   # Division is on ROIs.
-  rois_range_list = get_rois_range_list(rois, num_cores)
+  rois_range_list = get_interval_list(rois, num_cores)
   data_input_list = [(
       all_rois_be_tuple_matrix[roi_range[0]:roi_range[1]], contrast,
       regressors_matrix) for roi_range in rois_range_list]

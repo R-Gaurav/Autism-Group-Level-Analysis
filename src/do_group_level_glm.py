@@ -20,7 +20,7 @@ import numpy.linalg as npl
 import sys
 
 from utility.gla_utilities import get_beta_and_error_group_level_glm
-from utility.exp_utilities import get_rois_range_list
+from utility.exp_utilities import get_interval_list
 
 def do_group_level_glm(params):
   """
@@ -80,7 +80,7 @@ def do_group_level_glm(params):
   # Note: all_rois_be_tuple_3d_mat_list is a list, where each element is a 3D
   # matrix in which each cell stores the group level beta and error values as a
   # tuple obtained for respective brain voxels for a single ROI.
-  return all_rois_be_tuple_3d_mat_list
+  return np.array(all_rois_be_tuple_3d_mat_list)
 
 def _do_glm_for_single_roi_all_subjects(single_roi_all_subjects_fc_4d_matrix,
                                         regressors_matrix):
@@ -163,7 +163,7 @@ if __name__ == "__main__":
   num_subs_fc_matrix, rois, bx, by, bz = all_subjects_all_roi_fc_matrix.shape
   pool = Pool(num_cores)
 
-  rois_range_list = get_rois_range_list(rois, num_cores)
+  rois_range_list = get_interval_list(rois, num_cores)
   data_input_list = [(
       all_subjects_all_roi_fc_matrix[:, roi_range[0]:roi_range[1]],
       regressors_matrix) for roi_range in rois_range_list]

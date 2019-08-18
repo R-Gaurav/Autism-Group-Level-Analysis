@@ -44,3 +44,16 @@ def get_number_of_subjects_in_age_range_int(df, clm_name="", age_start=None,
   print "Number of subjects in age range [%s, %s] is: %s" % (
       age_start, age_end, ans)
   return
+
+y = []
+def generate_all_subs_all_rois_fc_matrix(subs, rois, bx, by, bz):
+  all_subs_all_rois_fc_matrix = []
+  for sub in xrange(subs):
+    all_rois_fc_matrix = []
+    for roi in xrange(rois):
+      k = np.random.random((bx, by, bz))
+      all_rois_fc_matrix.append(k)
+      y.append(k[0,0,0])
+    all_subs_all_rois_fc_matrix.append(all_rois_fc_matrix)
+
+  return np.array(all_subs_all_rois_fc_matrix)

@@ -1,0 +1,16 @@
+Code:
+
+/mnt/project1/home1/varunk/fMRI
+
+Raw Data:
+
+ABIDE1: /mnt/project1/rawData/fMRI/incoming/ABIDE/RawDataBIDs/
+
+ABIDE2: /mnt/project1/home1/varunk/data/ABIDE2RawDataBIDS/
+
+Processed data with other results:
+
+ABIDE1: /mnt/project2/home/varunk/fMRI/results/resultsABIDE1_4
+
+ABIDE2: /mnt/project2/home/varunk/fMRI/results/resultsABIDE2_1
+
