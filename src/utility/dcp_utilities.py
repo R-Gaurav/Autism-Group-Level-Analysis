@@ -6,8 +6,12 @@
 
 from scipy import stats
 
+import nibabel as nib
 import numpy as np
 import pandas as pd
+
+from . constants import (
+    ROI_WITH_ZERO_FC_MAT, TOTAL_NUMBER_OF_ROIS, BRAIN_X, BRAIN_Y, BRAIN_Z)
 
 def get_row_indices_with_no_missing_vals_list(df, clm_name_list):
   """
@@ -228,7 +232,7 @@ def get_processed_design_matrix(pheno_df, asd_row_ids, tdh_row_ids,
   # phenotypes CSV data does not have the intercept.
   assert len(regressors_mask[:-1]) == pheno_regressors_mat.shape[1]
   clms_indices = [
-      i for i in xrange(len(regressors_mask[:-1])) if regressors_mask[i]]
+      i for i in range(len(regressors_mask[:-1])) if regressors_mask[i]]
   ret_dsgn_mat = pheno_regressors_mat[:, clms_indices]
 
   # Last element of regressors_mask indicates whether or not to include the
@@ -237,3 +241,58 @@ def get_processed_design_matrix(pheno_df, asd_row_ids, tdh_row_ids,
     ret_dsgn_mat = np.c_[ret_dsgn_mat, np.ones(pheno_regressors_mat.shape[0])]
 
   return ret_dsgn_mat
+
+def get_4d_stat_matrix_of_all_ROIs(stat, path, regressors_strv, contrast_str):
+  """
+  Returns a 4D numpy matrix of all the ROIs' p or t values matrices (where each
+  ROI's p or t values matrix is a 3D matrix).
+
+  Note: For the ROI_WITH_ZERO_FC_MAT we set the p values of all brain voxels 0.
+
+  Args:
+    stat (str): A "p" stat or "t" stat for which 4D matrix is asked for.
+    path (str): The directory where the stat values 3D matrices reside.
+    regressors_strv (str): The regressors string vector for obtaining stat 3d mat.
+    contrast_str (str): The contrast string for obtaining the stat 3d mat.
+
+  Returns:
+    numpy.ndarray : BRAIN_X x BRAIN_Y x BRAIN_Z x TOTAL_NUMBER_OF_ROIS
+  """
+  all_rois_stat_val_4d_mat = np.zeros(
+      (BRAIN_X, BRAIN_Y, BRAIN_Z, TOTAL_NUMBER_OF_ROIS))
+
+  for roi in range(TOTAL_NUMBER_OF_ROIS):
+    if roi == ROI_WITH_ZERO_FC_MAT:
+      continue
+
+    all_rois_stat_val_4d_mat[:,:,:,roi] = nib.load(
+        path + "%s_ROI_%s_stat_mat_dsgn_mat_%s_contrast_%s.nii.gz"
+        % (roi, stat, regressors_strv, contrast_str)).get_fdata()
+
+  return all_rois_stat_val_4d_mat
+
+def get_4D_subjects_mean_correlation_vals_mat(fc_files_path, sub_ids, is_abide1):
+  """
+  Returns a 4D matrix of the mean of correlation values of each ROI of all subs
+  in `sub_ids`.
+
+  Args:
+    fc_files_path (str): Path/to/the/correlation/matrix
+    sub_ids ([int]): List of subject IDs for which 4D matrix has to be created.
+    is_abide1 (bool): True if passed args are with respect to ABIDE_1 else False.
+
+  Returns:
+    numpy.ndarray: BRAIN_X x BRAIN_Y x BRAIN_Z x TOTAL_NUMBER_OF_ROIS
+  """
+  all_rois_all_subs_mean_cv_mat = np.zeros(
+      (BRAIN_X, BRAIN_Y, BRAIN_Z, TOTAL_NUMBER_OF_ROIS))
+  if is_abide1:
+    fc_files_path += "/_subject_id_{}/func2std_xform/00{}_fc_map_flirt.nii.gz"
+  else:
+    fc_files_path += "/_subject_id_{}/func2std_xform/{}_fc_map_flirt.nii.gz"
+
+  for sub_id in sub_ids:
+    data = nib.load(fc_files_path.format(sub_id, sub_id)).get_fdata() # 4D mat.
+    all_rois_all_subs_mean_cv_mat += data
+
+  return all_rois_all_subs_mean_cv_mat / len(sub_ids)

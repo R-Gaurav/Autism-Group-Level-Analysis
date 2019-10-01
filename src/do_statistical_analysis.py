@@ -27,17 +27,15 @@ from utility.exp_utilities import get_interval_list
 from utility.constants import (
     TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH, LOG_FILE_PATH, BATCH_SIZE,
     ABIDE_1, ABIDE_2, ABIDE_1_BW_BE_TPL_DATA, ABIDE_2_BW_BE_TPL_DATA,
-    ABIDE_1_BW_TP_TPL_DATA, ABIDE_2_BW_TP_TPL_DATA)
+    ABIDE_1_BW_TP_TPL_DATA, ABIDE_2_BW_TP_TPL_DATA, FIRST_LEVEL_DATA)
 from utility import log
 
-from create_design_matrix_for_exp import get_design_matrix_for_the_exp
+from create_design_matrix_and_contrast_for_exp import (
+    get_design_matrix_for_the_exp, get_contrast_vector_for_exp)
 
 num_cores = 32
 
-log.configure_log_handler(
-    "%s_%s.log" % (LOG_FILE_PATH+__file__, datetime.datetime.now()))
-
-is_abide1 = True # If is_abide1 = True, do group level GLM for ABIDE1 else ABIDE2.
+is_abide1 = False # If is_abide1 = True, do stat analysis for ABIDE1 else ABIDE2.
 
 if is_abide1:
   abide = ABIDE_1
@@ -47,6 +45,10 @@ else:
   abide = ABIDE_2
   batch_wise_be_tpl_data = ABIDE_2_BW_BE_TPL_DATA
   batch_wise_tp_tpl_data = ABIDE_2_BW_TP_TPL_DATA
+
+log.configure_log_handler(
+    "%s_%s.log" % (LOG_FILE_PATH + abide + FIRST_LEVEL_DATA + __file__,
+    datetime.datetime.now()))
 
 log.INFO("Starting statistical analysis for %s" % abide)
 
@@ -60,23 +62,15 @@ log.INFO("Regressors String Vec: %s" % regressors_strv)
 ################################################################################
 ################## Set the contrast vector ####################
 ################################################################################
-# The first entry in the design_matrix with intercept could be either ASD or
-# TDH column, with the intercept being the last column.
-contrast = np.matrix([
-    1, # = ASD - TDH (Since in the design matrix, the first column is ASD and
-    0, # last column is that of the intercept).
-    0,
-    0,
-    0,
-    0,
-    0
-  ]).T
+
+contrast, contrast_str = get_contrast_vector_for_exp()
 log.INFO("Contrast vector: %s" % contrast)
 # Assert the size of contrast vector is equal to the number of cols in dsgn mat.
 assert contrast.shape[0] == design_matrix.shape[1]
 ################################################################################
 ################# Start the parallel statistical analysis process ##############
 ################################################################################
+
 log.INFO("Starting T and P value calculation for %s" % abide)
 # Create a pool of processes.
 pool = Pool(num_cores)
@@ -85,8 +79,8 @@ for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, BATCH_SIZE):
   batch_end = min(batch_start + BATCH_SIZE, TOTAL_NUMBER_OF_ROIS)
   log.INFO("Reading the batch: %s %s" % (batch_start, batch_end))
   all_subs_batch_wise_rois_be_tuple_matrix = np.load(
-      OUTPUT_FILE_PATH + batch_wise_be_tpl_data +
-      "batch_%s_%s_rois_beta_error_tuple_4D_matrix_dsgn_mat_%s"
+      OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + batch_wise_be_tpl_data +
+      "batch_%s_%s_rois_beta_error_tuple_4D_matrix_dsgn_mat_%s.npy"
       % (batch_start, batch_end, regressors_strv))
 
   rois, bx, by, bz = all_subs_batch_wise_rois_be_tuple_matrix.shape
@@ -122,10 +116,10 @@ for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, BATCH_SIZE):
 
   log.INFO("Saving the t-p value stat matrix obtained from statistical analysis "
            "for batch %s %s ..." % (batch_start, batch_end))
-  np.save(OUTPUT_FILE_PATH + batch_wise_tp_tpl_data +
+  np.save(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + batch_wise_tp_tpl_data +
           "batch_%s_%s_rois_tp_stat_tuple_4D_matrix_dsgn_mat_%s_contrast_%s"
-          % (batch_start, batch_end, regressors_strv,
-          "_".join(str(c[0,0]) for c in contrast)), result)
+          % (batch_start, batch_end, regressors_strv, contrast_str), result)
+
   log.INFO("T and P value stat matrix obtained from statistical analysis saved "
            "for batch: %s %s" % (batch_start, batch_end))
 

@@ -29,17 +29,15 @@ from utility.exp_utilities import get_interval_list
 from utility.constants import (
     TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH, BATCH_SIZE, ABIDE_1, ABIDE_2,
     LOG_FILE_PATH, ABIDE_1_BW_BE_TPL_DATA, ABIDE_2_BW_BE_TPL_DATA,
-    ABIDE_1_BW_ROI_FC_DATA, ABIDE_2_BW_ROI_FC_DATA)
+    ABIDE_1_BW_ROI_FC_DATA, ABIDE_2_BW_ROI_FC_DATA, FIRST_LEVEL_DATA)
 from utility import log
 
-from create_design_matrix_for_exp import get_design_matrix_for_the_exp
+from create_design_matrix_and_contrast_for_exp import (
+    get_design_matrix_for_the_exp)
 
 num_cores = 32
 
-log.configure_log_handler(
-    "%s_%s.log" % (LOG_FILE_PATH+__file__, datetime.datetime.now()))
-
-is_abide1 = True # If is_abide1 = True, do group level GLM for ABIDE1 else ABIDE2.
+is_abide1 = False # If is_abide1 = True, do group level GLM for ABIDE1 else ABIDE2.
 
 if is_abide1:
   abide = ABIDE_1
@@ -49,6 +47,10 @@ else:
   abide = ABIDE_2
   batch_wise_rois_fc_data = ABIDE_2_BW_ROI_FC_DATA
   batch_wise_be_tpl_data = ABIDE_2_BW_BE_TPL_DATA
+
+log.configure_log_handler(
+    "%s_%s.log" % (LOG_FILE_PATH + abide + FIRST_LEVEL_DATA + __file__,
+    datetime.datetime.now()))
 
 log.INFO("Starting Group Level GLM for %s" % abide)
 
@@ -70,7 +72,7 @@ for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, BATCH_SIZE):
   batch_end = min(batch_start + BATCH_SIZE, TOTAL_NUMBER_OF_ROIS)
   log.INFO("Reading the batch: %s %s" % (batch_start, batch_end))
   all_subs_batch_wise_rois_fc_matrix = np.load(
-      OUTPUT_FILE_PATH + batch_wise_rois_fc_data +
+      OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + batch_wise_rois_fc_data +
       "/all_subs_%s_start_%s_end_ROIs_fc_5D_matrix.npy"
       % (batch_start, batch_end))
 
@@ -108,7 +110,7 @@ for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, BATCH_SIZE):
   log.INFO("Saving the Beta Error tuple matrix obtained from group level GLM "
            "for batch %s %s ..." % (batch_start, batch_end))
   np.save(
-      OUTPUT_FILE_PATH + batch_wise_be_tpl_data +
+      OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + batch_wise_be_tpl_data +
       "batch_%s_%s_rois_beta_error_tuple_4D_matrix_dsgn_mat_%s"
       % (batch_start, batch_end, regressors_strv), result)
   log.INFO("Beta Error tuple matrix obtained from group level GLM saved for "

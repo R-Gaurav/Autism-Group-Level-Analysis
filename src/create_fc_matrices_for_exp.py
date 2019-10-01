@@ -23,13 +23,11 @@ from utility.exp_utilities import (
 from utility.constants import (
     ROI_WITH_ZERO_FC_MAT, TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH, LOG_FILE_PATH,
     PHENO_DATA_PATH_1, PHENO_DATA_PATH_2, FC_FILES_PATH_1, FC_FILES_PATH_2,
-    BATCH_SIZE, ABIDE_1, ABIDE_2, ABIDE_1_SUBS_MD, ABIDE_2_SUBS_MD)
+    BATCH_SIZE, ABIDE_1, ABIDE_2, ABIDE_1_SUBS_MD, ABIDE_2_SUBS_MD, EXP_DIR,
+    FIRST_LEVEL_DATA)
 from utility import log
 
-log.configure_log_handler(
-    "%s_%s.log" % (LOG_FILE_PATH+__file__, datetime.datetime.now()))
-
-is_abide1 = True # If abide1 is True, it prepares FC files for ABIDE1 else ABIDE2.
+is_abide1 = False # If abide1 is True, it prepares FC files for ABIDE1 else ABIDE2.
 
 if is_abide1:
   pheno_data_path = PHENO_DATA_PATH_1
@@ -43,6 +41,10 @@ else:
   abide = ABIDE_2
   buggy_subs_file = "abide_2_bug_sub_ids_from_varun.p"
   all_subs_metadata = ABIDE_2_SUBS_MD
+
+log.configure_log_handler(
+    "%s_%s.log" % (LOG_FILE_PATH + abide + FIRST_LEVEL_DATA + __file__,
+    datetime.datetime.now()))
 
 log.INFO("FC files creation started for %s dataset" % abide)
 
@@ -58,8 +60,7 @@ log.INFO("Number of subjects in %s dataset with complete phenotypic data: %s"
          % (abide, len(all_subs)))
 
 buggy_subs = pickle.load(
-    open("/mnt/project1/home1/varunk/ramashish/data/buggy_subjects/%s"
-    % buggy_subs_file, "rb"))
+    open("%s/data/buggy_subjects/%s" % (EXP_DIR, buggy_subs_file), "rb"))
 
 log.INFO("Removing buggy subs in file: %s" % buggy_subs_file)
 all_subs = list(set(all_subs) - set(buggy_subs))
@@ -78,19 +79,23 @@ log.INFO("Number of valid subs in %s dataset for whom FC matrices would be "
          len(incmp_fc_subs)))
 
 log.INFO("SUB IDs of valid subs for whom 5D mats are created: %s" % valid_subs)
-pickle.dump(valid_subs, open(OUTPUT_FILE_PATH+all_subs_metadata+"/valid_subs.p",
-            "wb"))
+pickle.dump(valid_subs,
+            open(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata
+            + "/valid_subs.p", "wb"))
 log.INFO("SUB IDs of subjects with no FC data: %s" % no_fc_subs)
-pickle.dump(no_fc_subs, open(OUTPUT_FILE_PATH+all_subs_metadata+
-            "/subs_with_no_fc_data.p", "wb"))
+pickle.dump(no_fc_subs,
+            open(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata
+            + "/subs_with_no_fc_data.p", "wb"))
 log.INFO("SUB IDs of subjects with zero FC data for ROIs other than %s ROI: %s"
          % (ROI_WITH_ZERO_FC_MAT, zero_fc_subs))
-pickle.dump(zero_fc_subs, open(OUTPUT_FILE_PATH+all_subs_metadata+
-            "/subs_having_zero_values_fc_data.p", "wb"))
+pickle.dump(zero_fc_subs,
+            open(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata
+            + "/subs_having_zero_values_fc_data.p", "wb"))
 log.INFO("SUB IDs of subjects who do not all the %s FC matrices: %s"
          % (TOTAL_NUMBER_OF_ROIS, incmp_fc_subs))
-pickle.dump(incmp_fc_subs, open(OUTPUT_FILE_PATH+all_subs_metadata+
-            "/subs_not_having_all_rois_fc_data.p", "wb"))
+pickle.dump(incmp_fc_subs,
+            open(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata
+            + "/subs_not_having_all_rois_fc_data.p", "wb"))
 
 df = pd.read_csv(pheno_data_path)
 asd_row_ids, tdh_row_ids = get_asd_and_tdh_subs_row_indices(df, valid_subs)
@@ -98,14 +103,35 @@ asd_row_ids, tdh_row_ids = get_asd_and_tdh_subs_row_indices(df, valid_subs)
 log.INFO("Row IDs of ASD and TDH subs obtained!")
 
 ################################################################################
+############ Creation of 4D mean correlation values matrix of subs #############
+################################################################################
+
+log.INFO("Creating 4D matrix of the mean of ASD subjects FC vals for each ROI")
+# Dimension of 4D matrix: bx x by x bz x TOTAL_NUMBER_OF_ROIS
+asd_sub_ids = df.loc[asd_row_ids]["SUB_ID"].tolist()
+asd_mean_fc_4d_mat = get_4D_subjects_mean_correlation_vals_mat(
+    fc_files_path + FIRST_LEVEL_DATA, asd_sub_ids, is_abide1)
+log.INFO("Saving ASD subs mean FC scores")
+np.save(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata +
+        "asd_mean_fc_all_rois_4d_mat.npy", asd_mean_fc_4d_mat)
+
+log.INFO("Creating 4D matrix of the mean of TDH subjects FC vals for each ROI")
+# Dimension of 4D matrix: bx x by x bz x TOTAL_NUMBER_OF_ROIS
+tdh_sub_ids = df.loc[tdh_row_ids]["SUB_ID"].tolist()
+tdh_mean_fc_4d_mat = get_4D_subjects_mean_correlation_vals_mat(
+    fc_files_path + FIRST_LEVEL_DATA, tdh_sub_ids, is_abide1)
+log.INFO("Saving TDH subs mean FC scores")
+np.save(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata +
+        "tdh_mean_fc_all_rois_4d_mat.npy", tdh_mean_fc_4d_mat)
+################################################################################
 ############# Creation of batchwise subs ROIs FC matrices #############
 ################################################################################
 
+log.INFO("Creating the 5D batchwise FC matrices...")
 start = time.time()
 construct_subs_batchwise_rois_fc_5D_mats(
     fc_files_path, df, asd_row_ids, tdh_row_ids, BATCH_SIZE, is_abide1)
 log.INFO("Hurray! FC matrices for %s dataset created! Time taken: %s" % (
          abide, time.time() - start))
-
 ################################################################################
 ################################################################################

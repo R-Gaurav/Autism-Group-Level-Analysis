@@ -20,9 +20,9 @@ analysis pipeline i.e. Group Level Analysis.
     3D matrix) is a tuple of (t-value, p-value) which is used to create the
     diagram of a particular ROI's connectivity with rest of the brain areas.
 
-> create_design_matrix_for_exp.py: This file creates the desired design matrix
-    to be used in the execution of both `do_group_level_glm_analysis.py` and
-    `do_statistical_analysis.py` files. Note that, both these files use the same
-    design matrix.
+> create_design_matrix_and_contrast_for_exp.py: This file creates the desired
+    design matrix to be used in the execution of both
+    `do_group_level_glm_analysis.py` and `do_statistical_analysis.py` files.
+    Note that, both these files use the same design matrix.
 
 > utility/ : This dir contains the utility files.

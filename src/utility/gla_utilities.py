@@ -111,11 +111,12 @@ def _calculate_t_score_and_p_score(voxel_beta_vec, voxel_error_vec, contrast,
   numerator = contrast.T.dot(voxel_beta_vec)
   # Error should be that obtained after GLM for a voxel.
   # Degree of Freedom = Number of subjects - rank of dsgn_matrix_x. In the
-  # get_design_matrix_for_the_exp() of create_design_matrix_for_exp.py it has
-  # been asserted that npl.matrix_rank(dsgn_matrix_x) is equal to the number of
-  # columns in the dsgn_matrix_x. Calculation of npl.matrix_rank() for such a
-  # similar matrix takes 0.02 secs on average, hence to save time, one can also
-  # set rank of dsgn_matrix_x = # number of columns in dsgn_matrix_x.
+  # get_design_matrix_for_the_exp() of file
+  # create_design_matrix_and_contrast_for_exp.py it has been asserted that
+  # npl.matrix_rank(dsgn_matrix_x) is equal to the number of columns in the
+  # dsgn_matrix_x. Calculation of npl.matrix_rank() for such a similar matrix
+  # takes 0.02 secs on average, hence to save time, one can also set rank of
+  # dsgn_matrix_x = # number of columns in dsgn_matrix_x.
   assert voxel_error_vec.shape[0] == dsgn_matrix_x.shape[0]
   dof = voxel_error_vec.shape[0] - npl.matrix_rank(dsgn_matrix_x)
 

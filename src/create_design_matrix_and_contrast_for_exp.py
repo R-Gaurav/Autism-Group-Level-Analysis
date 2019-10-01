@@ -11,13 +11,14 @@
 #       the design matrices.
 #
 
+import numpy as np
 import numpy.linalg as npl
 import pandas as pd
 import pickle
 
 from utility.constants import (
     PHENO_DATA_PATH_1, PHENO_DATA_PATH_2, OUTPUT_FILE_PATH, ABIDE_1_SUBS_MD,
-    ABIDE_2_SUBS_MD)
+    ABIDE_2_SUBS_MD, ABIDE_1, ABIDE_2, FIRST_LEVEL_DATA)
 from utility.dcp_utilities import (
     get_processed_design_matrix, get_asd_and_tdh_subs_row_indices)
 from utility.exp_utilities import get_regressors_mask_list
@@ -46,15 +47,18 @@ def get_design_matrix_for_the_exp(is_abide1):
     numpy.ndarray, str: The design matrix, Regressors string vector.
   """
   if is_abide1:
+    abide = ABIDE_1
     pheno_data_path = PHENO_DATA_PATH_1
     all_subs_metadata = ABIDE_1_SUBS_MD
   else:
+    abide = ABIDE_2
     pheno_data_path = PHENO_DATA_PATH_2
     all_subs_metadata = ABIDE_2_SUBS_MD
 
-  df = pd.read_csv(pheno_data_path) # Read the phenotype dataframe.
+  df = pd.read_csv(pheno_data_path, encoding="ISO-8859-1") # Read the phenotype dataframe.
   valid_subs = pickle.load(
-      open(OUTPUT_FILE_PATH + all_subs_metadata + "/valid_subs.p", "rb"))
+      open(OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_subs_metadata +
+      "/valid_subs.p", "rb"), encoding="bytes")
   asd_row_ids, tdh_row_ids = get_asd_and_tdh_subs_row_indices(df, valid_subs)
   regressors_mask, regressors_strv = get_regressors_mask_list(
       asd=ASD, tdh=TDH, leh=LEH, rih=RIH, eyo=EYO, eyc=EYC, fiq=FIQ, age=AGE,
@@ -82,3 +86,19 @@ def get_design_matrix_for_the_exp(is_abide1):
   assert npl.matrix_rank(design_matrix) == design_matrix.shape[1]
 
   return design_matrix, regressors_strv
+
+def get_contrast_vector_for_exp():
+  # The first entry in the design_matrix with intercept could be either ASD or
+  # TDH column, with the intercept being the last column.
+  contrast = np.matrix([
+      1, # = ASD - TDH (Since in the design matrix, the first column is ASD and
+      0, # last column is that of the intercept).
+      0,
+      0,
+      0,
+      0,
+      0
+    ]).T
+  contrast_str = "_".join(str(c[0,0]) for c in contrast)
+
+  return contrast, contrast_str

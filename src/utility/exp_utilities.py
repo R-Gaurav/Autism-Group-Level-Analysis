@@ -8,10 +8,11 @@ import nibabel as nib
 import numpy as np
 import pickle
 
-import log
-from constants import (
-    ROI_WITH_ZERO_FC_MAT, TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH,
-    ABIDE_1_BW_ROI_FC_DATA, ABIDE_2_BW_ROI_FC_DATA)
+from . import log
+from . constants import (
+    ROI_WITH_ZERO_FC_MAT, TOTAL_NUMBER_OF_ROIS, OUTPUT_FILE_PATH, ABIDE_1,
+    ABIDE_2, ABIDE_1_BW_ROI_FC_DATA, ABIDE_2_BW_ROI_FC_DATA, EXP_DIR,
+    FIRST_LEVEL_DATA, ABIDE_1_ALL_ROIS_LOGQ_MATS, ABIDE_2_ALL_ROIS_LOGQ_MATS)
 
 def get_interval_list(num, num_cores):
   """
@@ -46,7 +47,7 @@ def get_valid_subject_ids_with_buggy_subs(is_abide1):
   Returns:
     [int]
   """
-  buggy_subs_path = "/mnt/project1/home1/varunk/ramashish/data/buggy_subjects/"
+  buggy_subs_path = "%s/data/buggy_subjects/" % EXP_DIR
   if is_abide1:
     buggy_subs_path += "abide_1_bug_sub_ids_from_varun.p"
   else:
@@ -146,11 +147,11 @@ def construct_subs_batchwise_rois_fc_5D_mats(fc_files_path, df, asd_row_ids,
 
   Args:
     fc_files_path (str): File path to the FC matrices.
-    df (pandas.DataFrame): ABIDE1 or ABIDE2 Phenotype dataframe.
+    df (pandas.DataFrame): ABIDE_1 or ABIDE_2 Phenotype dataframe.
     asd_row_ids ([int]): List of ASD subs row indices.
     tdh_row_ids ([int]): List of TDH subs row indices.
     batch_size (int): Batch size of ROIs to be saved.
-    is_abide1 (bool): True if passed args are with respect to ABIDE1 else False.
+    is_abide1 (bool): True if passed args are with respect to ABIDE_1 else False.
   """
   output_file_path = OUTPUT_FILE_PATH
 
@@ -159,10 +160,10 @@ def construct_subs_batchwise_rois_fc_5D_mats(fc_files_path, df, asd_row_ids,
 
   if is_abide1:
     fc_files_path += "/_subject_id_{}/func2std_xform/00{}_fc_map_flirt.nii.gz"
-    output_file_path += ABIDE_1_BW_ROI_FC_DATA
+    output_file_path += (ABIDE_1 + FIRST_LEVEL_DATA + ABIDE_1_BW_ROI_FC_DATA)
   else:
     fc_files_path += "/_subject_id_{}/func2std_xform/{}_fc_map_flirt.nii.gz"
-    output_file_path += ABIDE_2_BW_ROI_FC_DATA
+    output_file_path += (ABIDE_2 + FIRST_LEVEL_DATA + ABIDE_2_BW_ROI_FC_DATA)
 
   for batch_start in xrange(0, TOTAL_NUMBER_OF_ROIS, batch_size):
     batch_end = min(batch_start + batch_size, TOTAL_NUMBER_OF_ROIS)
@@ -271,3 +272,85 @@ def get_regressors_mask_list(asd=None, tdh=None, leh=None, rih=None, eyo=None,
     regressors_mask.append(0)
 
   return regressors_mask, regressors_strv
+
+def get_3d_stat_mat_from_tp_mat(tp_tpl_3d_mat, is_t_val=True):
+  """
+  Constructs a 3D matrix with each and every voxel having either a t value or
+  p-value depending on the value of `is_t_val`.
+
+  Args:
+    tp_tpl_3d_mat (numpy.ndarray): A 3D matrix with each voxel containing a
+        tuple of (t-value, p-value) in the same order.
+    is_t_val (bool): True if t-value is the stat of interest else False for p-val.
+
+  Returns:
+    numpy.ndarray: A 3D matrix with all voxels containing either a t-val or p-val.
+  """
+  bx, by, bz =  tp_tpl_3d_mat.shape
+  stat_3d_mat = np.zeros((bx, by, bz))
+  # First value in tuple is a t-value and second value is a p-value.
+  tp_index = 0 if is_t_val else 1
+
+  for x in range(bx):
+    for y in range(by):
+      for z in range(bz):
+        if not np.isnan(tp_tpl_3d_mat[x,y,z][tp_index][0,0]):
+          stat_3d_mat[x,y,z] = tp_tpl_3d_mat[x,y,z][tp_index][0,0]
+
+  return stat_3d_mat
+
+def get_3d_stat_mat_to_nii_gz_format(params):
+  """
+  Obtains 3d stat matrices in nii.gz format.
+
+  Args:
+    params (tuple): A 2 element tuple with format below:
+      tp_tpl_stat_4d_mat, is_t_val = params[0], params[1]
+
+    tp_tpl_stat_4d_mat (numpy.ndarray): A 4D tp tuple stat matrix.
+    is_t_val (bool): If True construct a 3D mat with only t-values else p-values.
+
+  Returns:
+    [Nifti1Image() object]: A list of objects to a 3D stat matrix.
+  """
+  tp_tpl_stat_4d_mat, is_t_val = params[0], params[1]
+  rois, _, _, _ = tp_tpl_stat_4d_mat.shape
+
+  all_rois_stat_object_list = []
+
+  for roi in range(rois):
+    stat_3d_mat = get_3d_stat_mat_from_tp_mat(
+        tp_tpl_stat_4d_mat[roi], is_t_val=is_t_val)
+    stat_img = nib.Nifti1Image(stat_3d_mat, np.eye(4))
+    all_rois_stat_object_list.append(stat_img)
+
+  return all_rois_stat_object_list
+
+def create_3d_brain_nii_from_4d_mat(mat_4d, regressors_strv, contrast_str,
+                                    stat, is_abide1):
+  """
+  Creates 3d brain file from the passed `mat_4d` and saves it in nii.gz format.
+
+  Args:
+    mat_4d (numpy.ndarray): A 4D matrix of dimension (bx, by, bz, #ROIs)
+    regressors_strv (str): A string denoting the regressors chosen.
+    contrast_str (str): A string denoting the contrast chosen.
+    stat (str): Which stat? e.g. p, t, q, logq, etc.
+    is_abide1 (bool): True if this function is called for ABIDE-1 else False.
+  """
+  if is_abide1:
+    abide = ABIDE_1
+    all_rois_logq_output = ABIDE_1_ALL_ROIS_LOGQ_MATS
+  else:
+    abide = ABIDE_2
+    all_rois_logq_output = ABIDE_2_ALL_ROIS_LOGQ_MATS
+
+  _, _, _, num_rois = mat_4d.shape
+  for roi in range(num_rois):
+    brain_file = mat_4d[:, :, :, roi]
+    brain_img = nib.Nifti1Image(brain_file, np.eye(4))
+    nib.save(brain_img,
+             OUTPUT_FILE_PATH + abide + FIRST_LEVEL_DATA + all_rois_logq_output +
+             "%s_ROI_%s_stat_dsgn_%s_contrast_%s_3d_brain_file.nii.gz" % (
+             roi, stat, regressors_strv, contrast_str))
+    log.INFO("%s ROI %s stat brain file saved!" % (roi, stat))
